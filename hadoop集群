@@ -1,0 +1,234 @@
+Hadoop集群搭建
+前期准备
+环境说明
+三台主机	一master两slave
+网络环境:
+网关为192.168.35.2
+子网掩码为255.255.255.0
+
+用户名为都为liu
+主机名分别为:
+master
+slave1
+slave2
+静态IP分别为:
+192.168.35.100
+192.168.35.101
+192.168.35.102
+时间同步
+tzselect
+根据提示下一步(5	9 1)
+编辑配置文件使其生效
+vim /etc/profile
+TZ='Asia/Shanghai'; export TZ
+
+配置防火墙(三台主机都要设置)
+查看防火墙
+systemctl status firewalld.service 
+关闭防火墙
+systemctl stop firewalld.service  
+开机禁用防火墙
+systemctl disable firewalld.service
+
+配置SELINUX(三台主机都要设置)
+查看selinux状态
+Getenforce
+临时关闭selinux
+Setenforce 0
+永久关闭selinux
+vim /etc/sysconfig/selinux
+更改内容为SELINUX=disabled
+
+配置网络ip(三台主机都要设置不同的ip)
+vim /etc/sysconfig/network-scripts/ifcfg-ens33 
+内容如下：
+BOOTPROTO="static"		//静态ip
+IPADDR=192.168.35.100		//物理机ipconfig查看VM8的ip地址
+NETMASK=255.255.255.0	//子网掩码
+GATEWAY=192.168.35.2		//网关
+DNS=8.8.8.8				//域名，这里用谷歌的域名
+重启网络
+systemctl restart network
+master
+BOOTPROTO="static"
+IPADDR=192.168.35.100	
+NETMASK=255.255.255.0
+GATEWAY=192.168.35.2
+DNS=8.8.8.8
+slave1
+BOOTPROTO="static"
+IPADDR=192.168.35.101
+NETMASK=255.255.255.0
+GATEWAY=192.168.35.2
+DNS=8.8.8.8
+slave2
+BOOTPROTO="static"
+IPADDR=192.168.35.102
+NETMASK=255.255.255.0
+GATEWAY=192.168.35.2
+DNS=8.8.8.8
+
+修改主机名(三台主机都要设置不同的主机名)
+hostnamectl hostname master
+hostnamectl hostname slave1
+hostnamectl hostname slave1
+
+主机名和IP映射(三台主机都要设置)
+vim /etc/hosts
+192.168.35.100	master
+192.168.35.101	slave1
+192.168.35.102	slave2
+
+配置ssh免密登录(三台主机都要设置)
+修改配置信息
+vim /etc/ssh/sshd_config
+#RSAAuthentication yes
+#PubkeyAuthentication yes
+#AuthorizedKeysFile      .ssh/authorized_keys
+去掉以上内容的注释，开启ssh密钥认证
+ssh-keygen –t rsa
+cd ~.ssh
+cp id_rsa.pub authorized_keys
+master主机
+cd .ssh
+scp authorized_keys liu@slave1:/home/liu/.ssh/
+scp authorized_keys liu@slave2:/home/liu/.ssh/
+ssh master
+ssh slave1
+ssh slave2
+
+删除原有的jdk
+查询系统是否已安装Java
+rpm -qa | grep java
+卸载
+rpm -e –nodeps jdk名称
+验证是否还有jdk
+java -version
+
+jdk的安装
+tar -zxvf jdk-8u162-linux-x64.tar.gz –C /usr/local
+cd /usr/local
+mv jdk1.8.0_162 java
+
+环境变量
+vim .bashrc
+export JAVA_HOME=/usr/local/java
+export JRE_HOME=${JAVA_HOME}/jre
+export CLASSPATH=.:${JAVA_HOME}/jre
+PATH=${JAVA_HOME}/bin:$PATH
+source .bashrc
+分别执行以下命令
+java
+javac
+java –version
+
+hadoop安装
+tar -zxvf hadoop-2.6.0.tar.gz -C /usr/local 
+cd /usr/local
+mv hadoop-2.6.0 hadoop
+
+环境变量
+vim .bashrc
+export JAVA_HOME=/usr/local/java
+export JRE_HOME=${JAVA_HOME}/jre
+export CLASSPATH=.:${JAVA_HOME}/jre
+PATH=${JAVA_HOME}/bin:${HADOOP_HOME}/sbin:${HADOOP_HOME}/bin:$PATH
+export HADOOP_HOME=/usr/local/hadoop
+source .bashrc
+验证是否安装好hadoop
+hadoop version
+
+集群配置(master主机)
+core-site.xml
+<configuration>
+        <property>
+                <name>fs.defaultFS</name>
+                <value>hdfs://Master:9000</value>
+        </property>
+        <property>
+                <name>hadoop.tmp.dir</name>
+                <value>file:/usr/local/hadoop/tmp</value>
+        </property>
+</configuration>
+
+hdfs-site.xml
+<configuration>
+        <property>
+                <name>dfs.namenode.secondary.http-address</name>
+                <value>Master:50090</value>
+        </property>
+        <property>
+                <name>dfs.replication</name>
+                <value>2</value>
+        </property>
+        <property>
+                <name>dfs.namenode.name.dir</name>
+                <value>file:/usr/local/hadoop/tmp/dfs/name</value>
+        </property>
+        <property>
+                <name>dfs.datanode.data.dir</name>
+                <value>file:/usr/local/hadoop/tmp/dfs/data</value>
+        </property>
+</configuration>
+
+mapred-site.xml
+cp mapred-site.xml.template mapred-site.xml
+<configuration>
+        <property>
+                <name>mapreduce.framework.name</name>
+                <value>yarn</value>
+        </property>
+        <property>
+                <name>mapreduce.jobhistory.address</name>
+                <value>Master:10020</value>
+        </property>
+        <property>
+                <name>mapreduce.jobhistory.webapp.address</name>
+                <value>Master:19888</value>
+        </property>
+</configuration>
+
+yarn-site.xml
+<configuration>
+        <property>
+                <name>yarn.resourcemanager.hostname</name>
+                <value>Master</value>
+        </property>
+        <property>
+                <name>yarn.nodemanager.aux-services</name>
+                <value>mapreduce_shuffle</value>
+        </property>
+</configuration>
+
+cd /usr/local/hadoop/etc/hadoop
+vim slaves
+slave1
+slave2
+
+cd /usr/local
+sudo rm -r ./hadoop/tmp     # 删除 Hadoop 临时文件
+sudo rm -r ./hadoop/logs/*   # 删除日志文件
+tar -zcf ~/hadoop.master.tar.gz ./hadoop   # 先压缩再复制
+cd 
+scp ./hadoop.master.tar.gz slave1:/home/hadoop
+scp ./hadoop.master.tar.gz slave1:/home/hadoop
+
+slave1和slave2节点上执行
+sudo rm -r /usr/local/hadoop    # 删掉旧的（如果存在）
+sudo tar -zxf ~/hadoop.master.tar.gz -C /usr/local
+sudo chown -R liu /usr/local/hadoop
+
+master节点上格式化namenode
+hdfs namenode -format       # 首次运行需要执行初始化，之后不需要
+master启动集群服务
+start-dfs.sh
+start-yarn.sh
+mr-jobhistory-daemon.sh start historyserver
+hdfs dfsadmin –report查看集群是否启动成功
+如果 Live datanodes不为0 ，则说明集群启动成功
+
+出现权限问题
+sudo chmod -R 用户名 文件名
+sudo chgrp -R liu hadoop
+sudo chown -R liu hadoop
+vim /etc/sudoers
